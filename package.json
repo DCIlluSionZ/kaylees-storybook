@@ -1,0 +1,26 @@
+{
+  "name": "kaylees-storybook",
+  "version": "1.0.0",
+  "description": "An interactive Choose Your Own Adventure storybook app for Kaylee, powered by the Gemini API.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1"
+  },
+  "keywords": [
+    "storybook",
+    "children",
+    "gemini",
+    "interactive-fiction"
+  ],
+  "author": "DCI Cloud Hub",
+  "license": "MIT"
+}
