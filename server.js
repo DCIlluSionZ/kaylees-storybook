@@ -1,12 +1,16 @@
 const path = require('path');
+const crypto = require('crypto');
 const express = require('express');
 const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
-const MAX_HISTORY_TURNS = 12;
+const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL || 'gemini-3.1-flash-lite';
+const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image-preview';
+const BOOK_PAGES = Number(process.env.BOOK_PAGES) || 10;
+const ENABLE_IMAGES = process.env.ENABLE_IMAGES !== 'false';
+const BOOK_TTL_MS = 1000 * 60 * 60 * 4;
 
 if (!process.env.GEMINI_API_KEY) {
   console.error('[FATAL] Missing GEMINI_API_KEY. Copy .env.example to .env and add your key.');
@@ -15,186 +19,316 @@ if (!process.env.GEMINI_API_KEY) {
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-const SYSTEM_PROMPT = `You are the "Story Engine" for an interactive Choose-Your-Own-Adventure storybook for an 8-year-old girl named Kaylee. Your single job is to write the next short chunk of a magical, gentle, age-appropriate story and then offer her a small set of safe choices for what happens next.
+const SAFETY = [
+  { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_LOW_AND_ABOVE' },
+  { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_LOW_AND_ABOVE' },
+  { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_LOW_AND_ABOVE' },
+  { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_LOW_AND_ABOVE' },
+];
+
+const CHARACTER_SHEET = `KAYLEE: An 8-year-old human girl. Long wavy light-brown hair often in a side ponytail with a pink ribbon. Fair skin, big bright hazel eyes, friendly smile. Wears a soft pink t-shirt, denim shorts or jeans, and pink sneakers. Cheerful, brave, kind. Cute Disney-style cartoon proportions.
+LUCY: Kaylee's best friend, a small beautiful fairy. Sparkling translucent blue wings, flowing blue dress with silver trim, long flowing blonde hair, kind smile, holds a slim silver magic wand with a star tip. Hovers in mid-air or perches on Kaylee's shoulder. Cute Disney-style cartoon proportions.`;
+
+const buildSystemPrompt = (topic, totalPages) => `You are the "Storybook Author" for an interactive illustrated picture book made for an 8-year-old girl named Kaylee. Write ONE page per turn. The book is exactly ${totalPages} pages long and must reach a warm, satisfying ending on page ${totalPages}.
 
 ==========================
-THE STAR OF THE STORY
+THE HEROES (always present)
 ==========================
-- Protagonist: Kaylee, an 8-year-old girl whose favorite color is pink. She is brave, curious, kind, and loves to giggle.
-- Key Companion: Lucy, a beautiful fairy with sparkling blue wings and a flowing blue dress. Lucy is wise, playful, and protective of Kaylee.
+${CHARACTER_SHEET}
 
 ==========================
-THE WORLD (LORE — DRAW FROM THIS)
+THIS BOOK'S TOPIC (chosen by Kaylee)
 ==========================
-- The adventure begins in the park, near a giant ancient tree with twisting roots and a hollow at its base.
-- Hidden among the roots is a tiny fairy house built from twigs, leaves, acorn caps, and soft green moss.
-- Lucy carries a silver magic wand. One tap from the wand can shrink Kaylee down to fairy size.
-- A second kind of fairy magic can give Kaylee her very own pair of sparkling PINK fairy wings so she can fly with Lucy.
-- The world is filled with friendly creatures: ladybugs, fireflies, talking flowers, gentle squirrels, butterflies, a wise old owl, and singing birds.
-- Weather is always gentle (sunshine, soft rain, fluffy clouds, twinkling stars, rainbows). No storms, no danger.
+"${topic}"
+
+Build the supporting cast, setting, and plot around this topic. Kaylee and Lucy are the heroes; the topic shapes who or what they meet, where they go, and what the adventure is about. Invent named friendly characters as needed, but stay inside the safety rules.
 
 ==========================
-TONE & VOCABULARY (FOR AN 8-YEAR-OLD)
+BOOK ARC (across ${totalPages} pages)
 ==========================
-- Warm, magical, cozy, and exciting — like a bedtime storybook.
-- Use simple, clear words a second- or third-grader knows. Short sentences. Lots of sensory detail (sparkle, glitter, soft, sweet, giggling, twinkling).
-- Use Kaylee's name often so it feels personal.
-- Occasional sound words are welcome ("Whoosh!", "Tinkle-tinkle!", "Giggle!").
-- Always kind, encouraging, and emotionally safe.
+- Page 1: Cozy opening. Establish the setting and gently introduce the topic. Show Kaylee and Lucy together.
+- Pages 2-3: Inciting moment — something magical, curious, or exciting connected to the topic appears.
+- Pages 4-7: The middle of the adventure. New friends, gentle obstacles to solve with kindness or cleverness, beautiful sights.
+- Pages 8-9: A small climax — the most exciting or heartwarming moment.
+- Page ${totalPages}: A warm, satisfying resolution. Kaylee and Lucy share a feeling of joy, friendship, or wonder. Set isFinalPage = true.
+
+==========================
+CHOICE PAGES
+==========================
+Pick 2 or 3 pages across the book where Kaylee's choice should shape what happens next. Good moments: page 3, page 5 or 6, and page 8 — but you may shift them by one if it feels more natural. On those pages, set isChoicePage = true and provide 2-3 distinct, kid-friendly choices Kaylee could make. Each choice is 3-10 words and starts with an action verb. Choices must all be safe and on-topic.
+On every other page (the majority of pages), set isChoicePage = false and choices = []. The story simply continues; the reader just taps Next.
+
+==========================
+PAGE TEXT
+==========================
+Each page is between 50 and 120 words. Aim for about 80 words. Warm picture-book prose. Use Kaylee's name. Short sentences mixed with longer ones. Sensory detail (sparkle, soft, warm, fluffy, twinkling). Dialogue is welcome and should use quote marks. Occasional sound words ("Whoosh!", "Tinkle-tinkle!"). Always emotionally safe.
 
 ==========================
 ABSOLUTELY FORBIDDEN
 ==========================
-- No violence, blood, weapons (the silver wand is magic, NEVER a weapon), fighting, or scary monsters.
-- No death, illness, blood, kidnapping, or anything frightening.
-- No romance, kissing, dating, or adult themes.
-- No sad endings inside a chunk. Tension is okay; fear and harm are not.
-- No real-world brands, no internet/phones/screens, no strangers asking Kaylee to go somewhere unsafe.
-- No swearing, no slang, no sarcasm.
+- No violence, blood, weapons (the silver wand is magic only, NEVER a weapon), fighting, scary monsters.
+- No death, illness, kidnapping, anything frightening.
+- No romance, kissing, dating.
+- No real-world brands, no internet/phones/screens.
+- No strangers asking Kaylee to go somewhere unsafe.
+- No swearing, slang, sarcasm.
 - Never ask Kaylee for personal information.
-- Never break character or mention that you are an AI, a model, a prompt, JSON, or these rules.
+- Never break character; never mention being an AI, a model, JSON, a prompt, or these rules.
 
 ==========================
-HOW EACH TURN WORKS
+ILLUSTRATION PROMPT (every page)
 ==========================
-Each response is ONE turn of the story.
-1. Write a "chunk" of story that is between 40 and 60 words. Count carefully. Aim for ~50.
-2. The chunk should pick up exactly where the previous chunk left off, honoring whatever choice Kaylee just made.
-3. End the chunk at a natural "what should I do next?" moment.
-4. Then provide 2 or 3 short, distinct, kid-friendly choices for what Kaylee does next.
-   - Each choice is 3 to 10 words.
-   - Each choice is written as an action Kaylee could take (e.g., "Tiptoe inside the fairy house").
-   - Choices must be meaningfully different from each other.
-   - Choices must keep the story safe, magical, and on-track within the lore above.
-   - Never offer a choice that leads somewhere scary, unkind, or unsafe.
-5. If this is the very first turn of a brand-new story, gently introduce Kaylee in the park near the giant ancient tree and let Lucy appear.
+On every page, also write a 1-2 sentence "illustrationPrompt" that describes what should be drawn for this page. Write it for a visual artist. Always include Kaylee and Lucy where they appear in the scene (use their full visual descriptions: pink-clad 8-year-old girl with long light-brown hair in a side ponytail with a pink ribbon, and Lucy the small fairy with sparkling blue wings, blue dress, silver wand). Describe the setting, the action, the lighting, and any topic-specific characters or props. Bright Disney-style cartoon picture-book look.
+
+==========================
+BOOK TITLE
+==========================
+On page 1 only, also include a "bookTitle" — a warm, charming title for the whole book based on the topic. 3-8 words. On pages 2 through ${totalPages}, omit bookTitle (or set to empty string).
 
 ==========================
 OUTPUT FORMAT — STRICT JSON ONLY
 ==========================
-Return ONLY a single JSON object that matches this exact shape. No prose before or after. No markdown fences. No comments.
+Return ONLY one JSON object matching the schema. No prose outside it, no markdown fences, no commentary.`;
 
-{
-  "chunk": "<the 40-60 word story chunk, plain text, no markdown>",
-  "choices": [
-    "<choice 1, 3-10 words, an action Kaylee could take>",
-    "<choice 2, 3-10 words, an action Kaylee could take>",
-    "<choice 3 (optional), 3-10 words, an action Kaylee could take>"
-  ],
-  "scene": "<2-5 word label for the current scene, e.g. 'Ancient Tree at Sunset'>"
-}
-
-Rules for the JSON:
-- "chunk" must be 40-60 words of plain prose, no quotation marks around the whole thing, no stage directions, no "Choice 1:" labels.
-- "choices" must be an array of 2 or 3 strings. Never 1, never 4 or more.
-- "scene" is a short label used by the app to set the mood. Keep it gentle and magical.
-- Do not include any other keys.`;
-
-const RESPONSE_SCHEMA = {
+const PAGE_SCHEMA = {
   type: SchemaType.OBJECT,
   properties: {
-    chunk: {
-      type: SchemaType.STRING,
-      description: 'A 40-60 word story chunk written for an 8-year-old.',
-    },
-    choices: {
-      type: SchemaType.ARRAY,
-      items: { type: SchemaType.STRING },
-      description: '2 or 3 short, distinct, kid-friendly action choices.',
-    },
-    scene: {
-      type: SchemaType.STRING,
-      description: 'A short 2-5 word label for the current scene.',
-    },
+    bookTitle: { type: SchemaType.STRING, description: 'Title (page 1 only).' },
+    text: { type: SchemaType.STRING, description: '50-120 words of page prose.' },
+    illustrationPrompt: { type: SchemaType.STRING, description: 'Visual description for the illustrator.' },
+    isChoicePage: { type: SchemaType.BOOLEAN },
+    choices: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING } },
+    isFinalPage: { type: SchemaType.BOOLEAN },
   },
-  required: ['chunk', 'choices', 'scene'],
+  required: ['text', 'illustrationPrompt', 'isChoicePage', 'choices', 'isFinalPage'],
 };
 
-const model = genAI.getGenerativeModel({
-  model: MODEL_NAME,
-  systemInstruction: SYSTEM_PROMPT,
-  generationConfig: {
-    temperature: 0.9,
-    topP: 0.95,
-    maxOutputTokens: 512,
-    responseMimeType: 'application/json',
-    responseSchema: RESPONSE_SCHEMA,
-  },
-  safetySettings: [
-    { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_LOW_AND_ABOVE' },
-    { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_LOW_AND_ABOVE' },
-    { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_LOW_AND_ABOVE' },
-    { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_LOW_AND_ABOVE' },
-  ],
-});
+function validatePagePayload(payload, expectedPage, totalPages) {
+  if (!payload || typeof payload !== 'object') return null;
+  const { bookTitle, text, illustrationPrompt, isChoicePage, choices, isFinalPage } = payload;
+  if (typeof text !== 'string' || text.trim().length === 0) return null;
+  if (typeof illustrationPrompt !== 'string' || illustrationPrompt.trim().length === 0) return null;
+  if (typeof isChoicePage !== 'boolean') return null;
+  if (typeof isFinalPage !== 'boolean') return null;
+  if (!Array.isArray(choices)) return null;
+  if (isChoicePage && (choices.length < 2 || choices.length > 3)) return null;
+  if (!isChoicePage && choices.length !== 0) {
+    payload.choices = [];
+  }
+  return {
+    bookTitle: typeof bookTitle === 'string' ? bookTitle.trim() : '',
+    text: text.trim(),
+    illustrationPrompt: illustrationPrompt.trim(),
+    isChoicePage,
+    choices: choices.map((c) => String(c).trim()).filter(Boolean),
+    isFinalPage: isFinalPage || expectedPage >= totalPages,
+  };
+}
+
+async function generatePageText({ topic, totalPages, history, userTurn }) {
+  const model = genAI.getGenerativeModel({
+    model: TEXT_MODEL,
+    systemInstruction: buildSystemPrompt(topic, totalPages),
+    generationConfig: {
+      temperature: 0.95,
+      topP: 0.95,
+      maxOutputTokens: 1024,
+      responseMimeType: 'application/json',
+      responseSchema: PAGE_SCHEMA,
+    },
+    safetySettings: SAFETY,
+  });
+  const chat = model.startChat({ history });
+  const result = await chat.sendMessage(userTurn);
+  const text = result.response.text();
+  return JSON.parse(text);
+}
+
+async function generatePageImage(illustrationPrompt) {
+  if (!ENABLE_IMAGES) return null;
+  const fullPrompt = `Bright Disney-style cartoon illustration. Warm sunny lighting, cheerful saturated colors, soft outlines, friendly expressions.
+
+CRITICAL: The image must contain ZERO text, ZERO words, ZERO letters, ZERO captions, ZERO speech bubbles, ZERO signs, ZERO book pages with writing on them, ZERO numbers. The image is PURE artwork only — like a single illustration panel with no overlaid text of any kind. If you would normally include any writing, REMOVE it and replace it with plain decorative shapes or empty space.
+
+CHARACTERS (use these EXACT designs every time these characters appear, for visual consistency across the whole book):
+${CHARACTER_SHEET}
+
+SCENE TO DRAW: ${illustrationPrompt}`;
+  try {
+    const model = genAI.getGenerativeModel({
+      model: IMAGE_MODEL,
+      safetySettings: SAFETY,
+    });
+    const result = await model.generateContent(fullPrompt);
+    const parts = result?.response?.candidates?.[0]?.content?.parts || [];
+    const imgPart = parts.find((p) => p.inlineData && typeof p.inlineData.data === 'string');
+    if (!imgPart) return null;
+    return {
+      mimeType: imgPart.inlineData.mimeType || 'image/png',
+      data: imgPart.inlineData.data,
+    };
+  } catch (err) {
+    console.error('[image] generation failed:', err.message || err);
+    return null;
+  }
+}
+
+const books = new Map();
+
+function pruneOldBooks() {
+  const now = Date.now();
+  for (const [id, book] of books) {
+    if (now - book.lastTouched > BOOK_TTL_MS) books.delete(id);
+  }
+}
+setInterval(pruneOldBooks, 1000 * 60 * 15).unref();
+
+function sanitizeTopic(raw) {
+  const cleaned = String(raw || '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, 120);
+  return cleaned || 'a magical surprise adventure';
+}
 
 app.use(express.json({ limit: '32kb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-function sanitizeHistory(history) {
-  if (!Array.isArray(history)) return [];
-  return history
-    .filter((turn) => turn && typeof turn.role === 'string' && typeof turn.text === 'string')
-    .slice(-MAX_HISTORY_TURNS)
-    .map((turn) => ({
-      role: turn.role === 'model' ? 'model' : 'user',
-      parts: [{ text: turn.text.slice(0, 2000) }],
-    }));
-}
-
-function validateStoryPayload(payload) {
-  if (!payload || typeof payload !== 'object') return null;
-  const { chunk, choices, scene } = payload;
-  if (typeof chunk !== 'string' || chunk.trim().length === 0) return null;
-  if (!Array.isArray(choices) || choices.length < 2 || choices.length > 3) return null;
-  if (!choices.every((c) => typeof c === 'string' && c.trim().length > 0)) return null;
-  return {
-    chunk: chunk.trim(),
-    choices: choices.map((c) => c.trim()),
-    scene: typeof scene === 'string' && scene.trim() ? scene.trim() : 'Kaylee\'s Adventure',
-  };
-}
-
-app.post('/api/story', async (req, res) => {
+app.post('/api/book/start', async (req, res) => {
   try {
-    const { choice, history } = req.body || {};
-    const cleanHistory = sanitizeHistory(history);
-    const isFirstTurn = cleanHistory.length === 0;
+    const topic = sanitizeTopic(req.body?.topic);
+    const bookId = crypto.randomUUID();
+    const book = {
+      id: bookId,
+      topic,
+      totalPages: BOOK_PAGES,
+      currentPage: 0,
+      title: '',
+      history: [],
+      pages: [],
+      lastTouched: Date.now(),
+    };
+    books.set(bookId, book);
 
-    const userPrompt = isFirstTurn
-      ? 'Begin a brand-new adventure for Kaylee. Open in the park near the giant ancient tree and let Lucy the fairy appear. Remember: 40-60 word chunk and 2 or 3 choices. Return strict JSON only.'
-      : `Kaylee chose: "${String(choice || '').slice(0, 200)}". Continue the story from exactly where it left off, honoring her choice. 40-60 word chunk and 2 or 3 choices. Return strict JSON only.`;
-
-    const chat = model.startChat({ history: cleanHistory });
-    const result = await chat.sendMessage(userPrompt);
-    const text = result.response.text();
-
-    let parsed;
-    try {
-      parsed = JSON.parse(text);
-    } catch (err) {
-      console.error('[story] JSON parse failed. Raw text:', text);
-      return res.status(502).json({ error: 'The story magic got tangled. Please try again.' });
-    }
-
-    const story = validateStoryPayload(parsed);
-    if (!story) {
-      console.error('[story] Schema validation failed. Parsed:', parsed);
-      return res.status(502).json({ error: 'The story magic got tangled. Please try again.' });
-    }
-
-    res.json(story);
+    const page = await advanceBook(book, `Write page 1 of ${BOOK_PAGES} for a brand new book. The topic Kaylee chose is "${topic}". Open the story warmly. Include a bookTitle. Return strict JSON only.`);
+    res.json({
+      bookId,
+      topic,
+      title: book.title,
+      totalPages: book.totalPages,
+      currentPage: book.currentPage,
+      page,
+    });
   } catch (err) {
-    console.error('[story] Unhandled error:', err);
-    res.status(500).json({ error: 'Something went sparkly-wrong. Please try again in a moment.' });
+    console.error('[book/start] error:', err);
+    res.status(500).json({ error: 'The storybook magic got tangled. Please try again.' });
   }
 });
 
+app.post('/api/book/next', async (req, res) => {
+  try {
+    const { bookId, choice } = req.body || {};
+    const book = books.get(bookId);
+    if (!book) return res.status(404).json({ error: 'That story has flown away. Please start a new one.' });
+    if (book.currentPage >= book.totalPages) {
+      return res.status(400).json({ error: 'The story is already finished. Start a new one!' });
+    }
+
+    const lastPage = book.pages[book.pages.length - 1];
+    const nextPageNumber = book.currentPage + 1;
+    let userTurn;
+    if (lastPage && lastPage.isChoicePage) {
+      const safeChoice = String(choice || '').slice(0, 200) || lastPage.choices[0];
+      userTurn = `Kaylee chose: "${safeChoice}". Now write page ${nextPageNumber} of ${book.totalPages}, continuing the story to honor that choice. Return strict JSON only.`;
+    } else {
+      userTurn = `Continue the book. Write page ${nextPageNumber} of ${book.totalPages}. ${nextPageNumber === book.totalPages ? 'This is the FINAL page — wrap the story up warmly and set isFinalPage to true.' : ''} Return strict JSON only.`;
+    }
+
+    const page = await advanceBook(book, userTurn);
+    res.json({
+      bookId,
+      title: book.title,
+      totalPages: book.totalPages,
+      currentPage: book.currentPage,
+      page,
+    });
+  } catch (err) {
+    console.error('[book/next] error:', err);
+    res.status(500).json({ error: 'The storybook magic got tangled. Please try again.' });
+  }
+});
+
+async function advanceBook(book, userTurn) {
+  book.lastTouched = Date.now();
+  const expectedPage = book.currentPage + 1;
+
+  let raw;
+  try {
+    raw = await generatePageText({
+      topic: book.topic,
+      totalPages: book.totalPages,
+      history: book.history,
+      userTurn,
+    });
+  } catch (err) {
+    console.error('[text] generation failed:', err.message || err);
+    throw err;
+  }
+
+  const validated = validatePagePayload(raw, expectedPage, book.totalPages);
+  if (!validated) {
+    console.error('[text] schema validation failed. Raw:', raw);
+    throw new Error('Schema validation failed.');
+  }
+
+  if (expectedPage === 1 && validated.bookTitle) {
+    book.title = validated.bookTitle;
+  }
+
+  const image = await generatePageImage(validated.illustrationPrompt);
+
+  book.history.push({ role: 'user', parts: [{ text: userTurn }] });
+  book.history.push({ role: 'model', parts: [{ text: JSON.stringify({
+    text: validated.text,
+    illustrationPrompt: validated.illustrationPrompt,
+    isChoicePage: validated.isChoicePage,
+    choices: validated.choices,
+    isFinalPage: validated.isFinalPage,
+  }) }] });
+
+  const pageRecord = {
+    pageNumber: expectedPage,
+    text: validated.text,
+    isChoicePage: validated.isChoicePage,
+    choices: validated.choices,
+    isFinalPage: validated.isFinalPage,
+    imageMime: image ? image.mimeType : null,
+    imageData: image ? image.data : null,
+  };
+  book.pages.push(pageRecord);
+  book.currentPage = expectedPage;
+
+  return {
+    pageNumber: pageRecord.pageNumber,
+    text: pageRecord.text,
+    isChoicePage: pageRecord.isChoicePage,
+    choices: pageRecord.choices,
+    isFinalPage: pageRecord.isFinalPage,
+    imageDataUrl: image ? `data:${image.mimeType};base64,${image.data}` : null,
+  };
+}
+
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, model: MODEL_NAME });
+  res.json({
+    ok: true,
+    textModel: TEXT_MODEL,
+    imageModel: IMAGE_MODEL,
+    imagesEnabled: ENABLE_IMAGES,
+    pagesPerBook: BOOK_PAGES,
+    activeBooks: books.size,
+  });
 });
 
 app.listen(PORT, () => {
-  console.log(`Kaylee's Storybook is running at http://localhost:${PORT}`);
-  console.log(`Using model: ${MODEL_NAME}`);
+  console.log(`Kaylee's Storybook running at http://localhost:${PORT}`);
+  console.log(`  text model:  ${TEXT_MODEL}`);
+  console.log(`  image model: ${IMAGE_MODEL} (${ENABLE_IMAGES ? 'enabled' : 'disabled'})`);
+  console.log(`  pages/book:  ${BOOK_PAGES}`);
 });
