@@ -45,7 +45,7 @@ Open <http://localhost:3000> and tap **Start the Adventure**.
 | Variable         | Required | Default            | Notes                                  |
 |------------------|----------|--------------------|----------------------------------------|
 | `GEMINI_API_KEY` | yes      | —                  | From Google AI Studio.                 |
-| `GEMINI_MODEL`   | no       | `gemini-1.5-flash` | Use `gemini-1.5-pro` for higher quality. |
+| `GEMINI_MODEL`   | no       | `gemini-3.1-flash-lite` | Cheapest/fastest tier; ample for this app. Step up to `gemini-3-flash` or `gemini-3.1-pro` only if needed. |
 | `PORT`           | no       | `3000`             | Server port.                           |
 
 ## Hosting on DCI Cloud Hub

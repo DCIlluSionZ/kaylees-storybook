@@ -5,7 +5,7 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
 const MAX_HISTORY_TURNS = 12;
 
 if (!process.env.GEMINI_API_KEY) {
