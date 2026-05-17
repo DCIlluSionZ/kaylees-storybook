@@ -13,45 +13,103 @@
 <body>
   <div class="sparkle-layer" aria-hidden="true"></div>
 
-  <main class="storybook">
-    <header class="storybook__header">
-      <h1>Kaylee's Magical Storybook</h1>
-      <p class="scene-label" id="scene-label">A New Adventure</p>
-    </header>
+  <main class="app" id="app">
 
-    <section class="story-card" aria-live="polite">
-      <div class="story-text" id="story-text">
-        Hi Kaylee! Press the big pink button to begin your magical adventure with Lucy the fairy.
-      </div>
+    <section class="screen screen--cover" id="screen-cover">
+      <header class="cover__header">
+        <h1>Kaylee's Magical Storybook</h1>
+        <p class="cover__subtitle">Tonight Kaylee and Lucy the fairy go on an adventure about&hellip;</p>
+      </header>
 
-      <div class="controls">
-        <button type="button" class="control-btn" id="replay-btn" title="Read it again" aria-label="Read it again">
-          <span class="control-icon">&#128266;</span>
-          <span>Read Again</span>
-        </button>
-        <button type="button" class="control-btn" id="mute-btn" title="Mute or unmute" aria-label="Mute or unmute">
-          <span class="control-icon" id="mute-icon">&#128263;</span>
-          <span id="mute-label">Sound On</span>
+      <div class="topic-card">
+        <label for="topic-input" class="topic-label">What's the story about?</label>
+        <input
+          type="text"
+          id="topic-input"
+          class="topic-input"
+          placeholder="e.g. a friendly Squishmallow"
+          maxlength="80"
+          autocomplete="off"
+        />
+        <p class="topic-hint">Pick from below or type your own:</p>
+        <div class="topic-chips" id="topic-chips">
+          <button type="button" class="chip" data-topic="a friendly Squishmallow named Love">Squishmallows</button>
+          <button type="button" class="chip" data-topic="a magical pink unicorn">Unicorns</button>
+          <button type="button" class="chip" data-topic="a playful little puppy">Puppies</button>
+          <button type="button" class="chip" data-topic="a sparkly mermaid in a coral reef">Mermaids</button>
+          <button type="button" class="chip" data-topic="a tiny baby dragon">Dragons</button>
+          <button type="button" class="chip" data-topic="a friendly rainbow butterfly">Butterflies</button>
+          <button type="button" class="chip" data-topic="a sleepy kitten with a bow">Kittens</button>
+          <button type="button" class="chip" data-topic="a giant gentle whale in the sky">Sky whales</button>
+        </div>
+
+        <button type="button" class="start-btn" id="start-btn">
+          <span class="start-btn__sparkle">&#10024;</span>
+          Make My Storybook
+          <span class="start-btn__sparkle">&#10024;</span>
         </button>
       </div>
     </section>
 
-    <section class="choices" id="choices" aria-label="What does Kaylee do next?">
-      <button type="button" class="start-btn" id="start-btn">
-        <span class="start-btn__sparkle">&#10024;</span>
-        Start the Adventure
-        <span class="start-btn__sparkle">&#10024;</span>
-      </button>
+    <section class="screen screen--book" id="screen-book" hidden>
+      <header class="book__header">
+        <h2 class="book__title" id="book-title">A New Storybook</h2>
+        <div class="book__progress">
+          <span class="page-indicator" id="page-indicator">Page 1 of 10</span>
+        </div>
+      </header>
+
+      <div class="book__spread">
+        <div class="book__illustration" id="book-illustration">
+          <div class="illustration-placeholder">
+            <span class="illustration-placeholder__wand">&#128302;</span>
+            <span>Painting...</span>
+          </div>
+        </div>
+        <div class="book__text-card">
+          <div class="book__text" id="book-text">&nbsp;</div>
+
+          <div class="book__controls">
+            <button type="button" class="control-btn" id="replay-btn" title="Read it again" aria-label="Read it again">
+              <span class="control-icon">&#128266;</span>
+              <span>Read Again</span>
+            </button>
+            <button type="button" class="control-btn" id="mute-btn" title="Mute or unmute" aria-label="Mute or unmute">
+              <span class="control-icon" id="mute-icon">&#128266;</span>
+              <span id="mute-label">Sound On</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="book__nav" id="book-nav">
+        <button type="button" class="next-btn" id="next-btn">
+          Turn the Page
+          <span class="next-btn__arrow">&#10142;</span>
+        </button>
+      </div>
+
+      <div class="book__choices" id="book-choices" hidden></div>
+
+      <div class="loader" id="loader" hidden>
+        <div class="loader__wand">&#128302;</div>
+        <p id="loader-text">Lucy is painting the next page...</p>
+      </div>
     </section>
 
-    <div class="loader" id="loader" hidden>
-      <div class="loader__wand">&#128302;</div>
-      <p>Lucy is sprinkling story magic...</p>
-    </div>
+    <section class="screen screen--end" id="screen-end" hidden>
+      <h2 class="end__title">The End</h2>
+      <p class="end__subtitle" id="end-subtitle">What a magical adventure!</p>
+      <div class="end__actions">
+        <button type="button" class="start-btn" id="reread-btn">
+          <span class="start-btn__sparkle">&#10024;</span>
+          Read It Again
+          <span class="start-btn__sparkle">&#10024;</span>
+        </button>
+        <button type="button" class="ghost-btn" id="another-btn">Make Another Story</button>
+      </div>
+    </section>
 
-    <footer class="storybook__footer">
-      <button type="button" class="restart-btn" id="restart-btn" hidden>Start Over</button>
-    </footer>
   </main>
 
   <script src="app.js"></script>
