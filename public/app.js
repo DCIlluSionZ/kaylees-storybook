@@ -210,9 +210,7 @@
 
   async function startBook() {
     if (state.isLoading) return;
-    const typed = els.topicInput.value.trim();
-    const chosen = els.topicChips.querySelector('.chip.is-selected');
-    const topic = typed || (chosen && chosen.dataset.topic) || 'a magical surprise adventure';
+    const topic = els.topicInput.value.trim() || 'a magical surprise adventure';
 
     tts.stop();
     state.bookId = null; state.title = ''; state.pages = []; state.currentPageNumber = 0;
@@ -307,13 +305,42 @@
     els.topicChips.querySelectorAll('.chip').forEach((c) => c.classList.remove('is-selected'));
   });
 
+  function escapeRegex(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+  function tidyTopicInput() {
+    els.topicInput.value = els.topicInput.value
+      .replace(/\s*,\s*,\s*/g, ', ')
+      .replace(/^[\s,]+|[\s,]+$/g, '');
+  }
+  function syncChipStates() {
+    const v = els.topicInput.value.toLowerCase();
+    els.topicChips.querySelectorAll('.chip').forEach((c) => {
+      const topic = (c.dataset.topic || c.textContent.trim()).toLowerCase();
+      c.classList.toggle('is-selected', topic.length > 0 && v.includes(topic));
+    });
+  }
   els.topicChips.addEventListener('click', (e) => {
     const chip = e.target.closest('.chip');
     if (!chip) return;
-    els.topicChips.querySelectorAll('.chip').forEach((c) => c.classList.remove('is-selected'));
-    chip.classList.add('is-selected');
-    els.topicInput.value = chip.dataset.topic || chip.textContent;
+    const topic = chip.dataset.topic || chip.textContent.trim();
+    if (chip.classList.contains('is-selected')) {
+      const esc = escapeRegex(topic);
+      let v = els.topicInput.value;
+      const before = v;
+      v = v.replace(new RegExp('\\s*,\\s*' + esc, 'i'), '');
+      if (v === before) v = v.replace(new RegExp(esc + '\\s*,\\s*', 'i'), '');
+      if (v === before) v = v.replace(new RegExp(esc, 'i'), '');
+      els.topicInput.value = v;
+    } else {
+      const current = els.topicInput.value.trim().replace(/,\s*$/, '');
+      els.topicInput.value = current ? current + ', ' + topic : topic;
+    }
+    tidyTopicInput();
+    syncChipStates();
+    els.topicInput.focus();
   });
+  els.topicInput.addEventListener('input', syncChipStates);
 
   els.topicInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); startBook(); }
