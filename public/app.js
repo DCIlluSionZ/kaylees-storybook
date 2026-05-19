@@ -156,7 +156,6 @@
       els.bookText.textContent = page.text;
       els.bookText.classList.remove('is-fading');
       els.bookText.classList.add('is-visible');
-      tts.speak(page.text);
     }, 180);
 
     els.bookChoices.innerHTML = '';
@@ -259,7 +258,6 @@
         els.bookText.textContent = page.text;
         els.bookText.classList.remove('is-fading');
         els.bookText.classList.add('is-visible');
-        tts.speak(page.text);
       }, 200);
       els.bookChoices.hidden = true;
       els.bookChoices.innerHTML = '';
@@ -279,8 +277,6 @@
     } else {
       els.muteIcon.textContent = '🔊';
       els.muteLabel.textContent = 'Sound On';
-      const currentPage = state.pages[state.currentPageNumber - 1];
-      if (currentPage) tts.speak(currentPage.text);
     }
   }
 
