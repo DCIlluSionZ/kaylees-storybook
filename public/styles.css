@@ -131,8 +131,9 @@ html, body {
   display: grid; gap: 18px;
   grid-template-columns: 1fr;
 }
+.book__spread > * { min-width: 0; }
 @media (min-width: 820px) {
-  .book__spread { grid-template-columns: 1.05fr 0.95fr; align-items: stretch; }
+  .book__spread { grid-template-columns: 1.05fr 0.95fr; align-items: start; }
 }
 
 .book__illustration {

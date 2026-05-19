@@ -45,25 +45,37 @@
       if (!tts.supported) return null;
       const voices = window.speechSynthesis.getVoices();
       if (!voices.length) return null;
-      const preferred = [
-        /en-US.*(Female|Samantha|Jenny|Aria|Ava|Zira)/i,
-        /en-GB.*(Female|Libby|Sonia)/i,
-        /Google US English/i,
-        /en[-_]/i,
-      ];
-      for (const re of preferred) {
-        const match = voices.find((v) => re.test(`${v.lang} ${v.name}`));
-        if (match) return match;
+      const score = (v) => {
+        const name = v.name || '';
+        const lang = (v.lang || '').toLowerCase();
+        if (!/^en/.test(lang)) return -100;
+        let s = 0;
+        if (/premium/i.test(name)) s += 100;
+        else if (/enhanced/i.test(name)) s += 60;
+        else if (v.localService) s += 30;
+        if (/natural|neural/i.test(name)) s += 50;
+        if (/samantha|ava|allison|jenny|aria|karen|moira|libby|sonia|susan/i.test(name)) s += 20;
+        if (/female/i.test(name)) s += 10;
+        if (lang.startsWith('en-us')) s += 5;
+        else if (lang.startsWith('en-gb') || lang.startsWith('en-au')) s += 3;
+        if (/google\s+us\s+english$/i.test(name)) s -= 15;
+        return s;
+      };
+      let best = voices[0];
+      let bestScore = score(best);
+      for (let i = 1; i < voices.length; i++) {
+        const sc = score(voices[i]);
+        if (sc > bestScore) { best = voices[i]; bestScore = sc; }
       }
-      return voices[0];
+      return best;
     },
     speak(text) {
       if (!tts.supported || state.isMuted || !text) return;
       try {
         window.speechSynthesis.cancel();
         const utter = new SpeechSynthesisUtterance(text);
-        utter.rate = 0.95;
-        utter.pitch = 1.15;
+        utter.rate = 0.92;
+        utter.pitch = 1.0;
         utter.volume = 1;
         const voice = state.chosenVoice || tts.pickVoice();
         if (voice) {
