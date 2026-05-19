@@ -2,6 +2,7 @@ const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
 const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
+const sdkVersion = require('@google/generative-ai/package.json').version;
 require('dotenv').config();
 
 const app = express();
@@ -218,7 +219,7 @@ app.post('/api/book/start', async (req, res) => {
     });
   } catch (err) {
     console.error('[book/start] error:', err);
-    res.status(500).json({ error: 'The storybook magic got tangled. Please try again.' });
+    res.status(500).json({ error: String(err?.message || err), stage: 'book/start' });
   }
 });
 
@@ -251,7 +252,7 @@ app.post('/api/book/next', async (req, res) => {
     });
   } catch (err) {
     console.error('[book/next] error:', err);
-    res.status(500).json({ error: 'The storybook magic got tangled. Please try again.' });
+    res.status(500).json({ error: String(err?.message || err), stage: 'book/next' });
   }
 });
 
@@ -324,6 +325,28 @@ app.get('/api/health', (_req, res) => {
     pagesPerBook: BOOK_PAGES,
     activeBooks: books.size,
   });
+});
+
+app.get('/api/diagnose', async (_req, res) => {
+  const out = {
+    node: process.version,
+    sdkVersion,
+    textModel: TEXT_MODEL,
+    imageModel: IMAGE_MODEL,
+    enableImages: ENABLE_IMAGES,
+    bookPages: BOOK_PAGES,
+    hasApiKey: Boolean(process.env.GEMINI_API_KEY),
+    legacyGeminiModelEnv: process.env.GEMINI_MODEL || null,
+    probe: null,
+  };
+  try {
+    const m = genAI.getGenerativeModel({ model: TEXT_MODEL });
+    const r = await m.generateContent('Reply with the single word: ok');
+    out.probe = { ok: true, text: (r.response.text() || '').slice(0, 50) };
+  } catch (err) {
+    out.probe = { ok: false, error: String(err?.message || err) };
+  }
+  res.json(out);
 });
 
 app.listen(PORT, () => {
