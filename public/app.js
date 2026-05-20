@@ -137,12 +137,21 @@
       throw new Error(`Network error: ${networkErr.message || networkErr}`);
     }
     const rawBody = await res.text().catch(() => '');
-    let data = {};
-    try { data = rawBody ? JSON.parse(rawBody) : {}; } catch (_e) { /* not JSON */ }
+    const stripHtml = (s) => s.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 240);
+    let data = null;
+    let parseErr = null;
+    if (rawBody) {
+      try { data = JSON.parse(rawBody); }
+      catch (e) { parseErr = e; }
+    }
     if (!res.ok) {
-      const snippet = rawBody ? rawBody.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 240) : '';
-      const detail = data.error || snippet || `HTTP ${res.status} ${res.statusText || ''}`.trim();
+      const snippet = stripHtml(rawBody);
+      const detail = (data && data.error) || snippet || `HTTP ${res.status} ${res.statusText || ''}`.trim();
       throw new Error(`[${res.status}] ${detail}`);
+    }
+    if (data === null) {
+      const snippet = stripHtml(rawBody) || '(empty body)';
+      throw new Error(`[${res.status}] Server returned non-JSON: ${snippet}`);
     }
     return data;
   }
