@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#ff8ec7" />
   <title>Kaylee's Magical Storybook</title>
-  <link rel="stylesheet" href="styles.css?v=4" />
+  <link rel="stylesheet" href="styles.css?v=5" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Quicksand:wght@500;600;700&display=swap" rel="stylesheet" />
@@ -23,15 +23,20 @@
 
       <div class="topic-card">
         <label for="topic-input" class="topic-label">What's the story about?</label>
-        <input
-          type="text"
-          id="topic-input"
-          class="topic-input"
-          placeholder="e.g. a friendly Squishmallow"
-          maxlength="160"
-          autocomplete="off"
-        />
-        <p class="topic-hint">Pick from below or type your own:</p>
+        <div class="topic-input-row">
+          <input
+            type="text"
+            id="topic-input"
+            class="topic-input"
+            placeholder="e.g. a friendly Squishmallow"
+            maxlength="160"
+            autocomplete="off"
+          />
+          <button type="button" class="mic-btn" id="topic-mic-btn" title="Tap and say what you want" aria-label="Tap and say what your story is about" hidden>
+            <span class="mic-btn__icon">&#127908;</span>
+          </button>
+        </div>
+        <p class="topic-hint">Pick from below, type, or tap the microphone:</p>
         <div class="topic-chips" id="topic-chips">
           <button type="button" class="chip" data-topic="a friendly Squishmallow named Love">Squishmallows</button>
           <button type="button" class="chip" data-topic="a magical pink unicorn">Unicorns</button>
@@ -43,12 +48,54 @@
           <button type="button" class="chip" data-topic="a giant gentle whale in the sky">Sky whales</button>
         </div>
 
+        <details class="kaylee-details" id="kaylee-details">
+          <summary>About Kaylee (optional)</summary>
+          <div class="kaylee-form">
+            <label class="kaylee-field">
+              <span>Hair colour</span>
+              <select id="about-hair">
+                <option value="">Default (light brown)</option>
+                <option value="blonde">Blonde</option>
+                <option value="light brown">Light brown</option>
+                <option value="brown">Brown</option>
+                <option value="dark brown">Dark brown</option>
+                <option value="black">Black</option>
+                <option value="red">Red</option>
+                <option value="auburn">Auburn</option>
+              </select>
+            </label>
+            <label class="kaylee-field">
+              <span>Favourite colour</span>
+              <select id="about-fav-colour">
+                <option value="">Default (pink)</option>
+                <option value="pink">Pink</option>
+                <option value="purple">Purple</option>
+                <option value="blue">Blue</option>
+                <option value="teal">Teal</option>
+                <option value="rainbow">Rainbow</option>
+                <option value="mint">Mint green</option>
+                <option value="lavender">Lavender</option>
+                <option value="yellow">Yellow</option>
+              </select>
+            </label>
+            <label class="kaylee-field">
+              <span>Special pet or friend (optional)</span>
+              <input type="text" id="about-pet" class="kaylee-input" maxlength="40" placeholder="e.g. her bunny Marshmallow" autocomplete="off" />
+            </label>
+          </div>
+        </details>
+
         <button type="button" class="start-btn" id="start-btn">
           <span class="start-btn__sparkle">&#10024;</span>
           Make My Storybook
           <span class="start-btn__sparkle">&#10024;</span>
         </button>
       </div>
+
+      <section class="library" id="library" hidden>
+        <h2 class="library__title">My Storybooks</h2>
+        <div class="library__shelf" id="library-shelf"></div>
+      </section>
     </section>
 
     <section class="screen screen--book" id="screen-book" hidden>
@@ -91,6 +138,11 @@
 
       <div class="book__choices" id="book-choices" hidden></div>
 
+      <div class="voice-pick" id="voice-pick" hidden>
+        <span class="voice-pick__icon">&#127908;</span>
+        <span id="voice-pick-text">Say one, two, or three&hellip;</span>
+      </div>
+
       <div class="loader" id="loader" hidden>
         <div class="loader__wand">&#128302;</div>
         <p id="loader-text">Lucy is painting the next page...</p>
@@ -101,17 +153,19 @@
       <h2 class="end__title">The End</h2>
       <p class="end__subtitle" id="end-subtitle">What a magical adventure!</p>
       <div class="end__actions">
-        <button type="button" class="start-btn" id="reread-btn">
-          <span class="start-btn__sparkle">&#10024;</span>
-          Read It Again
-          <span class="start-btn__sparkle">&#10024;</span>
+        <button type="button" class="start-btn" id="save-btn">
+          <span class="start-btn__sparkle">&#128190;</span>
+          <span class="start-btn__label" id="save-btn-label">Save This Story</span>
+          <span class="start-btn__sparkle">&#128190;</span>
         </button>
+        <button type="button" class="ghost-btn" id="download-btn">Download Keepsake</button>
+        <button type="button" class="ghost-btn" id="reread-btn">Read It Again</button>
         <button type="button" class="ghost-btn" id="another-btn">Make Another Story</button>
       </div>
     </section>
 
   </main>
 
-  <script src="app.js?v=4"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>
