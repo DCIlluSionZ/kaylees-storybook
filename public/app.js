@@ -126,16 +126,34 @@
   }
 
   async function callApi(url, payload) {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || 'The storybook magic got tangled. Please try again.');
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (networkErr) {
+      throw new Error(`Network error: ${networkErr.message || networkErr}`);
     }
-    return res.json();
+    const rawBody = await res.text().catch(() => '');
+    const stripHtml = (s) => s.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 240);
+    let data = null;
+    let parseErr = null;
+    if (rawBody) {
+      try { data = JSON.parse(rawBody); }
+      catch (e) { parseErr = e; }
+    }
+    if (!res.ok) {
+      const snippet = stripHtml(rawBody);
+      const detail = (data && data.error) || snippet || `HTTP ${res.status} ${res.statusText || ''}`.trim();
+      throw new Error(`[${res.status}] ${detail}`);
+    }
+    if (data === null) {
+      const snippet = stripHtml(rawBody) || '(empty body)';
+      throw new Error(`[${res.status}] Server returned non-JSON: ${snippet}`);
+    }
+    return data;
   }
 
   function renderIllustration(dataUrl) {

@@ -12,6 +12,12 @@ const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image-pr
 const BOOK_PAGES = Number(process.env.BOOK_PAGES) || 10;
 const ENABLE_IMAGES = process.env.ENABLE_IMAGES !== 'false';
 const BOOK_TTL_MS = 1000 * 60 * 60 * 4;
+const IMAGE_TIMEOUT_MS = Number(process.env.IMAGE_TIMEOUT_MS) || 25000;
+const TEXT_TIMEOUT_MS = Number(process.env.TEXT_TIMEOUT_MS) || 25000;
+const withTimeout = (promise, ms, label) => Promise.race([
+  promise,
+  new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)),
+]);
 
 if (!process.env.GEMINI_API_KEY) {
   console.error('[FATAL] Missing GEMINI_API_KEY. Copy .env.example to .env and add your key.');
@@ -105,24 +111,24 @@ const PAGE_SCHEMA = {
 };
 
 function validatePagePayload(payload, expectedPage, totalPages) {
-  if (!payload || typeof payload !== 'object') return null;
+  if (!payload || typeof payload !== 'object') return { error: 'payload is not an object' };
   const { bookTitle, text, illustrationPrompt, isChoicePage, choices, isFinalPage } = payload;
-  if (typeof text !== 'string' || text.trim().length === 0) return null;
-  if (typeof illustrationPrompt !== 'string' || illustrationPrompt.trim().length === 0) return null;
-  if (typeof isChoicePage !== 'boolean') return null;
-  if (typeof isFinalPage !== 'boolean') return null;
-  if (!Array.isArray(choices)) return null;
-  if (isChoicePage && (choices.length < 2 || choices.length > 3)) return null;
-  if (!isChoicePage && choices.length !== 0) {
-    payload.choices = [];
-  }
+  if (typeof text !== 'string' || text.trim().length === 0) return { error: 'missing or empty text' };
+  if (typeof illustrationPrompt !== 'string' || illustrationPrompt.trim().length === 0) return { error: 'missing or empty illustrationPrompt' };
+  if (typeof isChoicePage !== 'boolean') return { error: 'isChoicePage not boolean' };
+  if (typeof isFinalPage !== 'boolean') return { error: 'isFinalPage not boolean' };
+  if (!Array.isArray(choices)) return { error: 'choices not array' };
+  if (isChoicePage && (choices.length < 2 || choices.length > 3)) return { error: `isChoicePage true but ${choices.length} choices` };
+  const safeChoices = isChoicePage ? choices.map((c) => String(c).trim()).filter(Boolean) : [];
   return {
-    bookTitle: typeof bookTitle === 'string' ? bookTitle.trim() : '',
-    text: text.trim(),
-    illustrationPrompt: illustrationPrompt.trim(),
-    isChoicePage,
-    choices: choices.map((c) => String(c).trim()).filter(Boolean),
-    isFinalPage: isFinalPage || expectedPage >= totalPages,
+    ok: {
+      bookTitle: typeof bookTitle === 'string' ? bookTitle.trim() : '',
+      text: text.trim(),
+      illustrationPrompt: illustrationPrompt.trim(),
+      isChoicePage,
+      choices: safeChoices,
+      isFinalPage: isFinalPage || expectedPage >= totalPages,
+    },
   };
 }
 
@@ -140,9 +146,22 @@ async function generatePageText({ topic, totalPages, history, userTurn }) {
     safetySettings: SAFETY,
   });
   const chat = model.startChat({ history });
-  const result = await chat.sendMessage(userTurn);
-  const text = result.response.text();
-  return JSON.parse(text);
+  const result = await withTimeout(chat.sendMessage(userTurn), TEXT_TIMEOUT_MS, 'text generation');
+  const response = result.response;
+  const blockReason = response?.promptFeedback?.blockReason;
+  if (blockReason) {
+    throw new Error(`Story blocked by safety filter (${blockReason}). Try a gentler topic.`);
+  }
+  const cand = response?.candidates?.[0];
+  if (cand?.finishReason && cand.finishReason !== 'STOP' && cand.finishReason !== 'MAX_TOKENS') {
+    throw new Error(`Story stopped early (${cand.finishReason}). Try a different topic.`);
+  }
+  let text;
+  try { text = response.text(); }
+  catch (err) { throw new Error(`No story text returned: ${err.message || err}`); }
+  if (!text || !text.trim()) throw new Error('Empty response from story model.');
+  try { return JSON.parse(text); }
+  catch (err) { throw new Error(`Story JSON parse failed: ${err.message}. First 200 chars: ${text.slice(0, 200)}`); }
 }
 
 async function generatePageImage(illustrationPrompt) {
@@ -160,7 +179,7 @@ SCENE TO DRAW: ${illustrationPrompt}`;
       model: IMAGE_MODEL,
       safetySettings: SAFETY,
     });
-    const result = await model.generateContent(fullPrompt);
+    const result = await withTimeout(model.generateContent(fullPrompt), IMAGE_TIMEOUT_MS, 'image generation');
     const parts = result?.response?.candidates?.[0]?.content?.parts || [];
     const imgPart = parts.find((p) => p.inlineData && typeof p.inlineData.data === 'string');
     if (!imgPart) return null;
@@ -185,7 +204,7 @@ function pruneOldBooks() {
 setInterval(pruneOldBooks, 1000 * 60 * 15).unref();
 
 function sanitizeTopic(raw) {
-  const cleaned = String(raw || '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, 120);
+  const cleaned = String(raw || '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, 200);
   return cleaned || 'a magical surprise adventure';
 }
 
@@ -273,11 +292,12 @@ async function advanceBook(book, userTurn) {
     throw err;
   }
 
-  const validated = validatePagePayload(raw, expectedPage, book.totalPages);
-  if (!validated) {
-    console.error('[text] schema validation failed. Raw:', raw);
-    throw new Error('Schema validation failed.');
+  const result = validatePagePayload(raw, expectedPage, book.totalPages);
+  if (!result.ok) {
+    console.error('[text] schema validation failed:', result.error, 'Raw:', raw);
+    throw new Error(`Story validation failed: ${result.error}`);
   }
+  const validated = result.ok;
 
   if (expectedPage === 1 && validated.bookTitle) {
     book.title = validated.bookTitle;
