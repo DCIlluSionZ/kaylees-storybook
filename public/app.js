@@ -156,8 +156,9 @@
     }, perWord);
   }
 
-  function speakPageWithKaraoke(text) {
-    if (!tts.supported || state.isMuted) return;
+  function speakPageWithKaraoke(text, onComplete) {
+    const done = () => { if (typeof onComplete === 'function') onComplete(); };
+    if (!tts.supported || state.isMuted || !text) { done(); return; }
     clearKaraoke();
     let boundaryFired = false;
     const fallbackDuration = Math.max(4000, text.length * 60);
@@ -176,9 +177,9 @@
         const wordIndex = (upto.match(/\S+/g) || []).length;
         highlightWordIndex(wordIndex);
       },
-      onEnd: () => { clearKaraoke(); },
+      onEnd: () => { clearKaraoke(); done(); },
     });
-    if (!utter) clearKaraoke();
+    if (!utter) { clearKaraoke(); done(); }
   }
 
   const recog = (function () {
@@ -192,12 +193,17 @@
         const r = new SR();
         r.lang = options.lang || 'en-US';
         r.interimResults = false;
-        r.maxAlternatives = 1;
+        r.maxAlternatives = 3;
         r.continuous = false;
         if (typeof options.onResult === 'function') {
           r.addEventListener('result', (e) => {
             const last = e.results[e.results.length - 1];
-            if (last && last[0]) options.onResult(String(last[0].transcript || '').trim());
+            if (!last) return;
+            const parts = [];
+            for (let i = 0; i < last.length; i++) {
+              if (last[i] && last[i].transcript) parts.push(String(last[i].transcript).trim());
+            }
+            options.onResult(parts.join(' '));
           });
         }
         if (typeof options.onEnd === 'function') r.addEventListener('end', options.onEnd);
@@ -308,7 +314,11 @@
     if (!recog) return;
     els.voicePick.hidden = false;
     els.voicePickText.textContent = `Say one${choices.length >= 2 ? ', two' : ''}${choices.length >= 3 ? ', or three' : ''}…`;
-    const numberWords = { one: 0, two: 1, three: 2, first: 0, second: 1, third: 2, '1': 0, '2': 1, '3': 2 };
+    const numberWords = {
+      one: 0, '1': 0, first: 0, won: 0, pink: 0,
+      two: 1, '2': 1, second: 1, to: 1, too: 1, tu: 1, blue: 1,
+      three: 2, '3': 2, third: 2, tree: 2, free: 2, purple: 2,
+    };
     const tryStart = () => {
       recog.start({
         onResult: (transcript) => {
@@ -364,20 +374,20 @@
     }, 180);
 
     els.bookChoices.innerHTML = '';
-    if (page.isFinalPage) {
+    const isFinal = !!page.isFinalPage;
+    const isChoice = !isFinal && page.isChoicePage && page.choices.length;
+
+    if (isFinal) {
       els.bookChoices.hidden = true;
       els.bookNav.hidden = true;
-      setTimeout(showEnd, 1200);
-      return;
-    }
-    if (page.isChoicePage && page.choices.length) {
+    } else if (isChoice) {
       els.bookNav.hidden = true;
       els.bookChoices.hidden = false;
       page.choices.forEach((choiceText, i) => {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'choice-btn';
-        btn.textContent = choiceText;
+        btn.textContent = `${i + 1}. ${choiceText}`;
         btn.setAttribute('aria-label', `Choice ${i + 1}: ${choiceText}`);
         btn.addEventListener('click', () => {
           tts.stop(); stopVoicePick(); clearKaraoke();
@@ -385,37 +395,45 @@
         });
         els.bookChoices.appendChild(btn);
       });
-
-      if (tts.supported && !state.isMuted) {
-        const intro = `What should happen next? `;
-        const spoken = page.choices.map((c, i) => `Choice ${i + 1}: ${c}.`).join(' ');
-        setTimeout(() => {
-          if (token !== state.pageRenderToken) return;
-          tts.speak(intro + spoken, {
-            onEnd: () => {
-              if (token !== state.pageRenderToken) return;
-              if (recog) startVoicePick(page.choices, (idx) => {
-                if (token !== state.pageRenderToken) return;
-                const text = page.choices[idx];
-                if (!text) return;
-                tts.stop(); clearKaraoke();
-                turnPage(text);
-              });
-            },
-          });
-        }, 600);
-      } else if (recog) {
-        startVoicePick(page.choices, (idx) => {
-          if (token !== state.pageRenderToken) return;
-          const text = page.choices[idx];
-          if (!text) return;
-          turnPage(text);
-        });
-      }
     } else {
       els.bookChoices.hidden = true;
       els.bookNav.hidden = false;
     }
+
+    const startChoiceVoicePick = () => {
+      if (token !== state.pageRenderToken) return;
+      if (!recog) return;
+      startVoicePick(page.choices, (idx) => {
+        if (token !== state.pageRenderToken) return;
+        const text = page.choices[idx];
+        if (!text) return;
+        tts.stop(); clearKaraoke();
+        turnPage(text);
+      });
+    };
+
+    setTimeout(() => {
+      if (token !== state.pageRenderToken) return;
+      speakPageWithKaraoke(page.text, () => {
+        if (token !== state.pageRenderToken) return;
+        if (isFinal) {
+          setTimeout(() => {
+            if (token === state.pageRenderToken) showEnd();
+          }, 700);
+          return;
+        }
+        if (!isChoice) return;
+        if (tts.supported && !state.isMuted) {
+          const intro = `What should happen next? `;
+          const spoken = page.choices.map((c, i) => `Choice ${i + 1}: ${c}.`).join(' ');
+          tts.speak(intro + spoken, {
+            onEnd: () => { if (token === state.pageRenderToken) startChoiceVoicePick(); },
+          });
+        } else {
+          startChoiceVoicePick();
+        }
+      });
+    }, 700);
   }
 
   function showEnd() {
