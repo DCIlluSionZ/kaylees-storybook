@@ -33,15 +33,53 @@ const SAFETY = [
   { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_LOW_AND_ABOVE' },
 ];
 
-const CHARACTER_SHEET = `KAYLEE: An 8-year-old human girl. Long wavy light-brown hair often in a side ponytail with a pink ribbon. Fair skin, big bright hazel eyes, friendly smile. Wears a soft pink t-shirt, denim shorts or jeans, and pink sneakers. Cheerful, brave, kind. Cute Disney-style cartoon proportions.
-LUCY: Kaylee's best friend, a small beautiful fairy. Sparkling translucent blue wings, flowing blue dress with silver trim, long flowing blonde hair, kind smile, holds a slim silver magic wand with a star tip. Hovers in mid-air or perches on Kaylee's shoulder. Cute Disney-style cartoon proportions.`;
+const ALLOWED_HAIR = new Set(['blonde', 'light brown', 'brown', 'dark brown', 'black', 'red', 'auburn']);
+const ALLOWED_COLOURS = new Set(['pink', 'purple', 'blue', 'teal', 'rainbow', 'mint', 'lavender', 'yellow']);
+const COLOUR_OUTFIT = {
+  pink: 'a soft pink t-shirt, denim shorts or jeans, and pink sneakers',
+  purple: 'a soft purple t-shirt with little stars, denim shorts or jeans, and purple sneakers',
+  blue: 'a soft sky-blue t-shirt, denim shorts or jeans, and blue sneakers',
+  teal: 'a soft teal t-shirt with a wave pattern, denim shorts or jeans, and teal sneakers',
+  rainbow: 'a soft rainbow-striped t-shirt, denim shorts or jeans, and rainbow sneakers',
+  mint: 'a soft mint-green t-shirt, denim shorts or jeans, and mint sneakers',
+  lavender: 'a soft lavender t-shirt with tiny flowers, denim shorts or jeans, and lavender sneakers',
+  yellow: 'a soft buttercup-yellow t-shirt, denim shorts or jeans, and yellow sneakers',
+};
+const COLOUR_RIBBON = {
+  pink: 'pink', purple: 'purple', blue: 'blue', teal: 'teal',
+  rainbow: 'rainbow', mint: 'mint-green', lavender: 'lavender', yellow: 'yellow',
+};
 
-const buildSystemPrompt = (topic, totalPages) => `You are the "Storybook Author" for an interactive illustrated picture book made for an 8-year-old girl named Kaylee. Write ONE page per turn. The book is exactly ${totalPages} pages long and must reach a warm, satisfying ending on page ${totalPages}.
+function sanitizeAbout(raw) {
+  const about = (raw && typeof raw === 'object') ? raw : {};
+  const hair = typeof about.hair === 'string' ? about.hair.toLowerCase().trim() : '';
+  const favColour = typeof about.favColour === 'string' ? about.favColour.toLowerCase().trim() : '';
+  const petRaw = typeof about.pet === 'string' ? about.pet.trim() : '';
+  return {
+    hair: ALLOWED_HAIR.has(hair) ? hair : '',
+    favColour: ALLOWED_COLOURS.has(favColour) ? favColour : '',
+    pet: petRaw.replace(/[\r\n\t]+/g, ' ').slice(0, 40),
+  };
+}
+
+function buildCharacterSheet(about) {
+  const hair = (about && about.hair) ? about.hair : 'light-brown';
+  const colour = (about && about.favColour) ? about.favColour : 'pink';
+  const outfit = COLOUR_OUTFIT[colour] || COLOUR_OUTFIT.pink;
+  const ribbon = COLOUR_RIBBON[colour] || 'pink';
+  const petLine = (about && about.pet)
+    ? `\nKAYLEE'S COMPANION: ${about.pet}. A small, friendly, kid-safe companion she loves. Include them in the story when natural.`
+    : '';
+  return `KAYLEE: An 8-year-old human girl. Long wavy ${hair} hair often in a side ponytail with a ${ribbon} ribbon. Fair skin, big bright hazel eyes, friendly smile. Wears ${outfit}. Cheerful, brave, kind. Cute Disney-style cartoon proportions.
+LUCY: Kaylee's best friend, a small beautiful fairy. Sparkling translucent blue wings, flowing blue dress with silver trim, long flowing blonde hair, kind smile, holds a slim silver magic wand with a star tip. Hovers in mid-air or perches on Kaylee's shoulder. Cute Disney-style cartoon proportions.${petLine}`;
+}
+
+const buildSystemPrompt = (topic, totalPages, characterSheet) => `You are the "Storybook Author" for an interactive illustrated picture book made for an 8-year-old girl named Kaylee. Write ONE page per turn. The book is exactly ${totalPages} pages long and must reach a warm, satisfying ending on page ${totalPages}.
 
 ==========================
 THE HEROES (always present)
 ==========================
-${CHARACTER_SHEET}
+${characterSheet}
 
 ==========================
 THIS BOOK'S TOPIC (chosen by Kaylee)
@@ -132,10 +170,10 @@ function validatePagePayload(payload, expectedPage, totalPages) {
   };
 }
 
-async function generatePageText({ topic, totalPages, history, userTurn }) {
+async function generatePageText({ topic, totalPages, history, userTurn, characterSheet }) {
   const model = genAI.getGenerativeModel({
     model: TEXT_MODEL,
-    systemInstruction: buildSystemPrompt(topic, totalPages),
+    systemInstruction: buildSystemPrompt(topic, totalPages, characterSheet),
     generationConfig: {
       temperature: 0.95,
       topP: 0.95,
@@ -164,14 +202,14 @@ async function generatePageText({ topic, totalPages, history, userTurn }) {
   catch (err) { throw new Error(`Story JSON parse failed: ${err.message}. First 200 chars: ${text.slice(0, 200)}`); }
 }
 
-async function generatePageImage(illustrationPrompt) {
+async function generatePageImage(illustrationPrompt, characterSheet) {
   if (!ENABLE_IMAGES) return null;
   const fullPrompt = `Bright Disney-style cartoon illustration. Warm sunny lighting, cheerful saturated colors, soft outlines, friendly expressions.
 
 CRITICAL: The image must contain ZERO text, ZERO words, ZERO letters, ZERO captions, ZERO speech bubbles, ZERO signs, ZERO book pages with writing on them, ZERO numbers. The image is PURE artwork only — like a single illustration panel with no overlaid text of any kind. If you would normally include any writing, REMOVE it and replace it with plain decorative shapes or empty space.
 
 CHARACTERS (use these EXACT designs every time these characters appear, for visual consistency across the whole book):
-${CHARACTER_SHEET}
+${characterSheet}
 
 SCENE TO DRAW: ${illustrationPrompt}`;
   try {
@@ -214,10 +252,14 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.post('/api/book/start', async (req, res) => {
   try {
     const topic = sanitizeTopic(req.body?.topic);
+    const about = sanitizeAbout(req.body?.about);
+    const characterSheet = buildCharacterSheet(about);
     const bookId = crypto.randomUUID();
     const book = {
       id: bookId,
       topic,
+      about,
+      characterSheet,
       totalPages: BOOK_PAGES,
       currentPage: 0,
       title: '',
@@ -279,6 +321,7 @@ async function advanceBook(book, userTurn) {
   book.lastTouched = Date.now();
   const expectedPage = book.currentPage + 1;
 
+  const characterSheet = book.characterSheet || buildCharacterSheet({});
   let raw;
   try {
     raw = await generatePageText({
@@ -286,6 +329,7 @@ async function advanceBook(book, userTurn) {
       totalPages: book.totalPages,
       history: book.history,
       userTurn,
+      characterSheet,
     });
   } catch (err) {
     console.error('[text] generation failed:', err.message || err);
@@ -303,7 +347,7 @@ async function advanceBook(book, userTurn) {
     book.title = validated.bookTitle;
   }
 
-  const image = await generatePageImage(validated.illustrationPrompt);
+  const image = await generatePageImage(validated.illustrationPrompt, characterSheet);
 
   book.history.push({ role: 'user', parts: [{ text: userTurn }] });
   book.history.push({ role: 'model', parts: [{ text: JSON.stringify({
