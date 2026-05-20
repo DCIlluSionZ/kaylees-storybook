@@ -12,7 +12,7 @@ const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image-pr
 const BOOK_PAGES = Number(process.env.BOOK_PAGES) || 10;
 const ENABLE_IMAGES = process.env.ENABLE_IMAGES !== 'false';
 const BOOK_TTL_MS = 1000 * 60 * 60 * 4;
-const IMAGE_TIMEOUT_MS = Number(process.env.IMAGE_TIMEOUT_MS) || 25000;
+const IMAGE_TIMEOUT_MS = Number(process.env.IMAGE_TIMEOUT_MS) || 45000;
 const TEXT_TIMEOUT_MS = Number(process.env.TEXT_TIMEOUT_MS) || 25000;
 const withTimeout = (promise, ms, label) => Promise.race([
   promise,
@@ -58,7 +58,7 @@ function sanitizeAbout(raw) {
   return {
     hair: ALLOWED_HAIR.has(hair) ? hair : '',
     favColour: ALLOWED_COLOURS.has(favColour) ? favColour : '',
-    pet: petRaw.replace(/[\r\n\t]+/g, ' ').slice(0, 40),
+    pet: petRaw.replace(/[\r\n\t]+/g, ' ').slice(0, 120),
   };
 }
 
@@ -67,11 +67,11 @@ function buildCharacterSheet(about) {
   const colour = (about && about.favColour) ? about.favColour : 'pink';
   const outfit = COLOUR_OUTFIT[colour] || COLOUR_OUTFIT.pink;
   const ribbon = COLOUR_RIBBON[colour] || 'pink';
-  const petLine = (about && about.pet)
-    ? `\nKAYLEE'S COMPANION: ${about.pet}. A small, friendly, kid-safe companion she loves. Include them in the story when natural.`
+  const friendsLine = (about && about.pet)
+    ? `\nKAYLEE'S FRIENDS / PETS (always include them where natural): ${about.pet}. Treat these as friendly, kid-safe characters Kaylee already knows and loves. Children should be drawn as 8-year-olds, similar size to Kaylee. Pets should be small and friendly. Weave them into the story and illustrations.`
     : '';
   return `KAYLEE: An 8-year-old human girl. Long wavy ${hair} hair often in a side ponytail with a ${ribbon} ribbon. Fair skin, big bright hazel eyes, friendly smile. Wears ${outfit}. Cheerful, brave, kind. Cute Disney-style cartoon proportions.
-LUCY: Kaylee's best friend, a small beautiful fairy. Sparkling translucent blue wings, flowing blue dress with silver trim, long flowing blonde hair, kind smile, holds a slim silver magic wand with a star tip. Hovers in mid-air or perches on Kaylee's shoulder. Cute Disney-style cartoon proportions.${petLine}`;
+LUCY: Kaylee's best friend, a small beautiful fairy. Sparkling translucent blue wings, flowing blue dress with silver trim, long flowing blonde hair, kind smile, holds a slim silver magic wand with a star tip. Hovers in mid-air or perches on Kaylee's shoulder. Cute Disney-style cartoon proportions.${friendsLine}`;
 }
 
 const buildSystemPrompt = (topic, totalPages, characterSheet) => `You are the "Storybook Author" for an interactive illustrated picture book made for an 8-year-old girl named Kaylee. Write ONE page per turn. The book is exactly ${totalPages} pages long and must reach a warm, satisfying ending on page ${totalPages}.
@@ -123,7 +123,12 @@ ABSOLUTELY FORBIDDEN
 ==========================
 ILLUSTRATION PROMPT (every page)
 ==========================
-On every page, also write a 1-2 sentence "illustrationPrompt" that describes what should be drawn for this page. Write it for a visual artist. Always include Kaylee and Lucy where they appear in the scene (use their full visual descriptions: pink-clad 8-year-old girl with long light-brown hair in a side ponytail with a pink ribbon, and Lucy the small fairy with sparkling blue wings, blue dress, silver wand). Describe the setting, the action, the lighting, and any topic-specific characters or props. Bright Disney-style cartoon picture-book look.
+On every page, also write a 1-2 sentence "illustrationPrompt" that describes what should be drawn for this page. Write it for a visual artist. Always include the heroes where they appear in the scene — refer to them by name (Kaylee, Lucy) only, since the illustrator already has their full visual descriptions from THE HEROES section above. Do NOT repeat hair colour, ribbon colour, outfit, or wing colour in the illustrationPrompt — that is fixed by the character sheet. Describe the setting, the action, the lighting, and any topic-specific characters or props. Bright Disney-style cartoon picture-book look.
+
+==========================
+PAGE TEXT — DESCRIBING KAYLEE
+==========================
+When the page text mentions Kaylee's appearance, use ONLY the hair colour, ribbon colour, and outfit colour shown in THE HEROES section above. Do not invent different ones.
 
 ==========================
 BOOK TITLE
@@ -203,7 +208,7 @@ async function generatePageText({ topic, totalPages, history, userTurn, characte
 }
 
 async function generatePageImage(illustrationPrompt, characterSheet) {
-  if (!ENABLE_IMAGES) return null;
+  if (!ENABLE_IMAGES) return { ok: false, reason: 'Images disabled' };
   const fullPrompt = `Bright Disney-style cartoon illustration. Warm sunny lighting, cheerful saturated colors, soft outlines, friendly expressions.
 
 CRITICAL: The image must contain ZERO text, ZERO words, ZERO letters, ZERO captions, ZERO speech bubbles, ZERO signs, ZERO book pages with writing on them, ZERO numbers. The image is PURE artwork only — like a single illustration panel with no overlaid text of any kind. If you would normally include any writing, REMOVE it and replace it with plain decorative shapes or empty space.
@@ -218,16 +223,27 @@ SCENE TO DRAW: ${illustrationPrompt}`;
       safetySettings: SAFETY,
     });
     const result = await withTimeout(model.generateContent(fullPrompt), IMAGE_TIMEOUT_MS, 'image generation');
-    const parts = result?.response?.candidates?.[0]?.content?.parts || [];
+    const response = result?.response;
+    const blockReason = response?.promptFeedback?.blockReason;
+    if (blockReason) {
+      return { ok: false, reason: `Image blocked by safety filter (${blockReason})` };
+    }
+    const cand = response?.candidates?.[0];
+    if (cand?.finishReason && cand.finishReason !== 'STOP') {
+      return { ok: false, reason: `Image stopped early (${cand.finishReason})` };
+    }
+    const parts = cand?.content?.parts || [];
     const imgPart = parts.find((p) => p.inlineData && typeof p.inlineData.data === 'string');
-    if (!imgPart) return null;
+    if (!imgPart) return { ok: false, reason: 'Image model returned no picture' };
     return {
+      ok: true,
       mimeType: imgPart.inlineData.mimeType || 'image/png',
       data: imgPart.inlineData.data,
     };
   } catch (err) {
-    console.error('[image] generation failed:', err.message || err);
-    return null;
+    const reason = String(err?.message || err || 'unknown error').slice(0, 200);
+    console.error('[image] generation failed:', reason);
+    return { ok: false, reason };
   }
 }
 
@@ -348,6 +364,7 @@ async function advanceBook(book, userTurn) {
   }
 
   const image = await generatePageImage(validated.illustrationPrompt, characterSheet);
+  const imageOk = image && image.ok;
 
   book.history.push({ role: 'user', parts: [{ text: userTurn }] });
   book.history.push({ role: 'model', parts: [{ text: JSON.stringify({
@@ -364,8 +381,8 @@ async function advanceBook(book, userTurn) {
     isChoicePage: validated.isChoicePage,
     choices: validated.choices,
     isFinalPage: validated.isFinalPage,
-    imageMime: image ? image.mimeType : null,
-    imageData: image ? image.data : null,
+    imageMime: imageOk ? image.mimeType : null,
+    imageData: imageOk ? image.data : null,
   };
   book.pages.push(pageRecord);
   book.currentPage = expectedPage;
@@ -376,7 +393,8 @@ async function advanceBook(book, userTurn) {
     isChoicePage: pageRecord.isChoicePage,
     choices: pageRecord.choices,
     isFinalPage: pageRecord.isFinalPage,
-    imageDataUrl: image ? `data:${image.mimeType};base64,${image.data}` : null,
+    imageDataUrl: imageOk ? `data:${image.mimeType};base64,${image.data}` : null,
+    imageError: imageOk ? null : (image && image.reason) || null,
   };
 }
 

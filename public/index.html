@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#ff8ec7" />
   <title>Kaylee's Magical Storybook</title>
-  <link rel="stylesheet" href="styles.css?v=5" />
+  <link rel="stylesheet" href="styles.css?v=6" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Quicksand:wght@500;600;700&display=swap" rel="stylesheet" />
@@ -48,7 +48,7 @@
           <button type="button" class="chip" data-topic="a giant gentle whale in the sky">Sky whales</button>
         </div>
 
-        <details class="kaylee-details" id="kaylee-details">
+        <details class="kaylee-details" id="kaylee-details" open>
           <summary>About Kaylee (optional)</summary>
           <div class="kaylee-form">
             <label class="kaylee-field">
@@ -79,8 +79,8 @@
               </select>
             </label>
             <label class="kaylee-field">
-              <span>Special pet or friend (optional)</span>
-              <input type="text" id="about-pet" class="kaylee-input" maxlength="40" placeholder="e.g. her bunny Marshmallow" autocomplete="off" />
+              <span>Friends or pets to include (optional)</span>
+              <input type="text" id="about-pet" class="kaylee-input" maxlength="120" placeholder="e.g. her sister and neighbour Ben" autocomplete="off" />
             </label>
           </div>
         </details>
@@ -166,6 +166,6 @@
 
   </main>
 
-  <script src="app.js?v=5"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>

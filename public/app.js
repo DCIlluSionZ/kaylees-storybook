@@ -272,7 +272,7 @@
     return data;
   }
 
-  function renderIllustration(dataUrl) {
+  function renderIllustration(dataUrl, errorReason) {
     els.illustration.innerHTML = '';
     if (dataUrl) {
       const img = document.createElement('img');
@@ -282,7 +282,19 @@
     } else {
       const ph = document.createElement('div');
       ph.className = 'illustration-placeholder';
-      ph.innerHTML = '<span class="illustration-placeholder__wand">&#10024;</span><span>Picture not ready</span>';
+      const wand = document.createElement('span');
+      wand.className = 'illustration-placeholder__wand';
+      wand.innerHTML = '&#10024;';
+      const label = document.createElement('span');
+      label.textContent = errorReason ? 'Picture not ready' : 'Painting...';
+      ph.appendChild(wand);
+      ph.appendChild(label);
+      if (errorReason) {
+        const detail = document.createElement('small');
+        detail.className = 'illustration-placeholder__detail';
+        detail.textContent = errorReason;
+        ph.appendChild(detail);
+      }
       els.illustration.appendChild(ph);
     }
   }
@@ -338,7 +350,7 @@
     els.pageIndicator.textContent = `Page ${page.pageNumber} of ${state.totalPages}`;
     if (state.title) els.bookTitle.textContent = state.title;
 
-    renderIllustration(page.imageDataUrl);
+    renderIllustration(page.imageDataUrl, page.imageError);
     stopVoicePick();
     clearKaraoke();
     tts.stop();
@@ -420,7 +432,7 @@
     return {
       hair: (els.aboutHair && els.aboutHair.value || '').trim(),
       favColour: (els.aboutFavColour && els.aboutFavColour.value || '').trim(),
-      pet: (els.aboutPet && els.aboutPet.value || '').trim().slice(0, 40),
+      pet: (els.aboutPet && els.aboutPet.value || '').trim().slice(0, 120),
     };
   }
 
@@ -501,7 +513,7 @@
       if (i >= state.pages.length) { showEnd(); return; }
       const page = state.pages[i++];
       els.pageIndicator.textContent = `Page ${page.pageNumber} of ${state.totalPages}`;
-      renderIllustration(page.imageDataUrl);
+      renderIllustration(page.imageDataUrl, page.imageError);
       els.bookText.classList.remove('is-visible');
       els.bookText.classList.add('is-fading');
       setTimeout(() => {
@@ -606,6 +618,7 @@
         pageNumber: p.pageNumber,
         text: p.text,
         imageDataUrl: p.imageDataUrl || null,
+        imageError: p.imageError || null,
         isChoicePage: !!p.isChoicePage,
         choices: Array.isArray(p.choices) ? p.choices : [],
         isFinalPage: !!p.isFinalPage,
