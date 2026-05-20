@@ -8,7 +8,7 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 const TEXT_MODEL = process.env.GEMINI_TEXT_MODEL || 'gemini-3.1-flash-lite';
-const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image-preview';
+const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
 const BOOK_PAGES = Number(process.env.BOOK_PAGES) || 10;
 const ENABLE_IMAGES = process.env.ENABLE_IMAGES !== 'false';
 const BOOK_TTL_MS = 1000 * 60 * 60 * 4;
@@ -263,7 +263,15 @@ function sanitizeTopic(raw) {
 }
 
 app.use(express.json({ limit: '32kb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+  },
+}));
 
 app.post('/api/book/start', async (req, res) => {
   try {
@@ -420,6 +428,7 @@ app.get('/api/diagnose', async (_req, res) => {
     hasApiKey: Boolean(process.env.GEMINI_API_KEY),
     legacyGeminiModelEnv: process.env.GEMINI_MODEL || null,
     probe: null,
+    imageProbe: null,
   };
   try {
     const m = genAI.getGenerativeModel({ model: TEXT_MODEL });
@@ -427,6 +436,25 @@ app.get('/api/diagnose', async (_req, res) => {
     out.probe = { ok: true, text: (r.response.text() || '').slice(0, 50) };
   } catch (err) {
     out.probe = { ok: false, error: String(err?.message || err) };
+  }
+  if (ENABLE_IMAGES) {
+    try {
+      const m = genAI.getGenerativeModel({ model: IMAGE_MODEL });
+      const r = await withTimeout(
+        m.generateContent('A tiny pink sparkle on a white background, cartoon style, no text.'),
+        IMAGE_TIMEOUT_MS,
+        'image probe',
+      );
+      const parts = r?.response?.candidates?.[0]?.content?.parts || [];
+      const imgPart = parts.find((p) => p.inlineData && typeof p.inlineData.data === 'string');
+      out.imageProbe = imgPart
+        ? { ok: true, mimeType: imgPart.inlineData.mimeType || 'image/png', bytes: imgPart.inlineData.data.length }
+        : { ok: false, error: 'Image model returned no picture part' };
+    } catch (err) {
+      out.imageProbe = { ok: false, error: String(err?.message || err).slice(0, 400) };
+    }
+  } else {
+    out.imageProbe = { ok: false, error: 'ENABLE_IMAGES is false' };
   }
   res.json(out);
 });
