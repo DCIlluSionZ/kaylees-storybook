@@ -54,6 +54,7 @@
     chosenVoice: null,
     wordSpans: [],
     karaokeTimer: null,
+    pageRenderToken: 0,
   };
 
   const tts = {
@@ -330,6 +331,7 @@
   }
 
   function renderPage(page) {
+    const token = ++state.pageRenderToken;
     state.currentPageNumber = page.pageNumber;
     state.pages[page.pageNumber - 1] = page;
 
@@ -339,6 +341,7 @@
     renderIllustration(page.imageDataUrl);
     stopVoicePick();
     clearKaraoke();
+    tts.stop();
 
     els.bookText.classList.remove('is-visible');
     els.bookText.classList.add('is-fading');
@@ -375,9 +378,12 @@
         const intro = `What should happen next? `;
         const spoken = page.choices.map((c, i) => `Choice ${i + 1}: ${c}.`).join(' ');
         setTimeout(() => {
+          if (token !== state.pageRenderToken) return;
           tts.speak(intro + spoken, {
             onEnd: () => {
+              if (token !== state.pageRenderToken) return;
               if (recog) startVoicePick(page.choices, (idx) => {
+                if (token !== state.pageRenderToken) return;
                 const text = page.choices[idx];
                 if (!text) return;
                 tts.stop(); clearKaraoke();
@@ -388,6 +394,7 @@
         }, 600);
       } else if (recog) {
         startVoicePick(page.choices, (idx) => {
+          if (token !== state.pageRenderToken) return;
           const text = page.choices[idx];
           if (!text) return;
           turnPage(text);
@@ -532,8 +539,7 @@
     } catch (_e) { return []; }
   }
   function saveLibrary(list) {
-    try { localStorage.setItem(LIBRARY_KEY, JSON.stringify(list)); }
-    catch (err) { console.warn('Library save failed', err); }
+    localStorage.setItem(LIBRARY_KEY, JSON.stringify(list));
   }
   function renderLibrary() {
     const list = loadLibrary();
@@ -574,8 +580,8 @@
       remove.addEventListener('click', (e) => {
         e.stopPropagation();
         const fresh = loadLibrary().filter((b) => b.id !== book.id);
-        saveLibrary(fresh);
-        renderLibrary();
+        try { saveLibrary(fresh); renderLibrary(); }
+        catch (err) { window.alert(`Couldn't update the shelf: ${err.message || err}`); }
       });
       body.appendChild(title);
       body.appendChild(date);
@@ -587,7 +593,7 @@
   }
 
   function saveCurrentStory() {
-    if (!state.pages.length) return false;
+    if (!state.pages.length) return { ok: false, error: 'No story to save yet.' };
     const list = loadLibrary();
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const entry = {
@@ -607,9 +613,17 @@
     };
     list.unshift(entry);
     while (list.length > 20) list.pop();
-    saveLibrary(list);
+    try {
+      saveLibrary(list);
+    } catch (err) {
+      console.warn('Library save failed', err);
+      const msg = (err && err.name === 'QuotaExceededError')
+        ? 'Your shelf is full. Try removing a story and saving again — or use Download Keepsake.'
+        : `Couldn't save: ${err && err.message ? err.message : err}`;
+      return { ok: false, error: msg };
+    }
     renderLibrary();
-    return true;
+    return { ok: true };
   }
 
   function escapeHtml(s) {
@@ -659,9 +673,12 @@ ${pagesHtml}
   els.muteBtn.addEventListener('click', toggleMute);
   els.rereadBtn.addEventListener('click', () => rereadBook(null));
   els.saveBtn.addEventListener('click', () => {
-    if (saveCurrentStory()) {
+    const result = saveCurrentStory();
+    if (result.ok) {
       els.saveBtn.disabled = true;
       if (els.saveBtnLabel) els.saveBtnLabel.textContent = 'Saved!';
+    } else {
+      window.alert(result.error || "Couldn't save the story.");
     }
   });
   els.downloadBtn.addEventListener('click', downloadKeepsake);
