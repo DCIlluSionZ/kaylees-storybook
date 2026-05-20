@@ -63,17 +63,21 @@
       if (!tts.supported) return null;
       const voices = window.speechSynthesis.getVoices();
       if (!voices.length) return null;
+      const FEMALE_NAME = /\b(samantha|ava|allison|jenny|aria|karen|moira|libby|sonia|susan|zira|hazel|catherine|heera|linda|eva|sarah|fiona|tessa|veena|joanna|kimberly|salli|kendra|nicole|amy|emma|olivia|amelia|natasha|clara|elsa)\b/i;
+      const MALE_NAME = /\b(david|mark|george|james|william|ravi|alex|daniel|fred|tom|paul|guy|matthew|brian|joey|justin|kevin|geraint|russell|bruce|junior|ralph|hans|reed|rocko|grandpa|albert|jacques|diego|jorge|carlos|enrique)\b/i;
       const score = (v) => {
         const name = v.name || '';
         const lang = (v.lang || '').toLowerCase();
-        if (!/^en/.test(lang)) return -100;
+        if (!/^en/.test(lang)) return -1000;
         let s = 0;
         if (/premium/i.test(name)) s += 100;
         else if (/enhanced/i.test(name)) s += 60;
         else if (v.localService) s += 30;
         if (/natural|neural/i.test(name)) s += 50;
-        if (/samantha|ava|allison|jenny|aria|karen|moira|libby|sonia|susan/i.test(name)) s += 20;
-        if (/female/i.test(name)) s += 10;
+        if (FEMALE_NAME.test(name)) s += 60;
+        if (/\bfemale\b/i.test(name)) s += 40;
+        if (MALE_NAME.test(name)) s -= 120;
+        if (/\bmale\b/i.test(name) && !/\bfemale\b/i.test(name)) s -= 60;
         if (lang.startsWith('en-us')) s += 5;
         else if (lang.startsWith('en-gb') || lang.startsWith('en-au')) s += 3;
         if (/google\s+us\s+english$/i.test(name)) s -= 15;
