@@ -126,16 +126,25 @@
   }
 
   async function callApi(url, payload) {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || 'The storybook magic got tangled. Please try again.');
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (networkErr) {
+      throw new Error(`Network error: ${networkErr.message || networkErr}`);
     }
-    return res.json();
+    const rawBody = await res.text().catch(() => '');
+    let data = {};
+    try { data = rawBody ? JSON.parse(rawBody) : {}; } catch (_e) { /* not JSON */ }
+    if (!res.ok) {
+      const snippet = rawBody ? rawBody.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 240) : '';
+      const detail = data.error || snippet || `HTTP ${res.status} ${res.statusText || ''}`.trim();
+      throw new Error(`[${res.status}] ${detail}`);
+    }
+    return data;
   }
 
   function renderIllustration(dataUrl) {
